@@ -51,7 +51,8 @@ test("packed package installs and starts from a plain npm consumer", async () =>
 
 		const installedRoot = path.join(consumer, "node_modules", "codex-computer-use-mcp");
 		const installedPackage = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
-		assert.equal(installedPackage.scripts.prepare, undefined);
+		// Registry installs never run prepare; it only builds git and source checkouts.
+		assert.equal(installedPackage.scripts.prepare, "npm run build");
 		assert.deepEqual(Object.keys(installedPackage.dependencies).sort(), ["@modelcontextprotocol/sdk", "zod"]);
 		await assert.rejects(access(path.join(consumer, "node_modules", "typescript")));
 		await assert.rejects(access(path.join(consumer, "node_modules", "@types", "node")));
