@@ -1,6 +1,6 @@
 {
   "name": "codex-computer-use-mcp",
-  "version": "0.6.2-windows.1",
+  "version": "0.6.2-windows.2",
   "description": "Expose the official macOS and Windows Computer Use tools directly to Pi and MCP clients without a nested model.",
   "author": "Thomas Mustier",
   "license": "MIT",
@@ -47,8 +47,8 @@
     "check:pi": "npm run build && npx tsc --ignoreConfig --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --types node integrations/pi/index.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "zod": "4.4.3"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.99.0"
@@ -59,11 +59,16 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.2.0",
-    "@oxlint/plugins": "1.79.0",
-    "@types/node": "24.13.3",
-    "oxlint": "1.79.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@oxlint/plugins": "1.89.0",
+    "@types/node": "24.19.2",
+    "oxlint": "1.89.0",
     "typescript": "7.0.2"
+  },
+  "overrides": {
+    "@earendil-works/pi-coding-agent": {
+      "undici": "8.12.3"
+    }
   },
   "engines": {
     "node": ">=22"

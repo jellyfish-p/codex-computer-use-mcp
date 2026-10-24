@@ -25,7 +25,7 @@ const jsonObjectSchema = z.record(z.string(), z.json());
 export const COMPUTER_USE_NAMESPACE: ToolNamespace = {
   name: "computer_use",
   description: "OpenAI's official signed macOS Computer Use. Call get_app_state for an app before acting on it, run known actions in sequence, then call get_app_state again before deciding the next step.",
-  instructions: `Compose these tools in codemode scripts:
+  instructions: `Call the computer_use_<method> tools directly; a script executor is not required. Optional script composition example:
 
 const state = await tools.computer_use_get_app_state({ app: "TextEdit" });
 text(state.text);
@@ -35,14 +35,14 @@ await tools.computer_use_type_text({ app: "TextEdit", text: "hello" });
 
 get_app_state resolves to { app, text, screenshot }. text is the accessibility tree; after the first inspection it may be a diff, so pass disableDiff: true for a fresh full tree. screenshot is an image block for image(), or null.
 Take element_index values from the latest get_app_state text, and inspect again after acting.
-Calls run one at a time, in the order the script makes them.
+Calls run one at a time, in request order.
 list_apps resolves to the official text inventory. A failed call rejects with the official error text.`,
 };
 
 export const WINDOWS_COMPUTER_USE_NAMESPACE: ToolNamespace = {
   name: "computer_use",
   description: "OpenAI's official signed Windows Computer Use. Pick a window from list_apps or list_windows, call get_window_state for it before acting, run known actions in sequence, then call get_window_state again before deciding the next step.",
-  instructions: `Compose these tools in codemode scripts:
+  instructions: `Call the computer_use_<method> tools directly; a script executor is not required. Optional script composition example:
 
 const { apps } = await tools.computer_use_list_apps({});
 const window = apps.find((app) => app.displayName === "Notepad")?.windows[0];
@@ -55,7 +55,7 @@ await tools.computer_use_type_text({ window, text: "hello" });
 list_apps resolves to { apps } and list_windows to { windows }. A window is { app, id, title }; pass it unchanged as the window argument of later calls, and use launch_app for an app without an open window.
 get_window_state resolves to { window, accessibility, screenshots }. accessibility.tree is the indexed element tree when include_text is true; each screenshot carries an image block for image() plus its id, size and origin. Take element_index values from the latest get_window_state, and inspect again after acting.
 scroll takes a window-relative x, y start point and scrollX, scrollY deltas. press_key uses keysym names such as Return, Tab or Control_L+a.
-Calls run one at a time, in the order the script makes them. The first use of an app asks for approval in Pi. A failed call rejects with the official error text.
+Calls run one at a time, in request order. The first use of an app asks for approval in Pi. A failed call rejects with the official error text.
 Computer Use holds the desktop during a turn, which ends when the agent settles or after 15 s without calls; element indexes are valid within one turn, so inspect again before acting after a pause.`,
 };
 
@@ -398,7 +398,7 @@ export default function directComputerUse(
     const active = pi.getActiveTools();
     if (active.includes("codemode") || toolNames.some((name) => active.includes(name))) return;
     ctx.ui.notify(
-      "Computer Use tools are called from codemode, which is not active. Add \"+codemode\" to defaultTools in settings.json, or start Pi with --tools +codemode.",
+      "Computer Use tools are not active. Add the computer_use_<method> tools directly to defaultTools in settings.json (see README). Codemode is optional.",
       "warning",
     );
   });

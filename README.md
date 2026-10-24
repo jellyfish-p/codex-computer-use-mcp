@@ -32,7 +32,37 @@ Install from npm:
 pi install npm:codex-computer-use-mcp
 ```
 
-The extension registers the official Computer Use methods of the host platform as Pi tools named `computer_use_<method>`. They use Pi's `codemode` exposure, so agents call and compose them from Pi's built-in `codemode` tool together with other Pi and MCP tools.
+The extension registers the official Computer Use methods of the host platform as Pi tools named `computer_use_<method>`. **Codemode is optional:** Pi can declare these tools directly to the model when you activate them. The extension preserves Pi's `codemode` exposure for optional composition, but does not require a script executor or change the active tool set itself.
+
+### Direct calls without codemode
+
+On Windows, add these entries to `defaultTools` in `~/.pi/agent/settings.json` (merge with any existing entries):
+
+```json
+{
+  "defaultTools": [
+    "+computer_use_list_apps",
+    "+computer_use_list_windows",
+    "+computer_use_get_window",
+    "+computer_use_launch_app",
+    "+computer_use_get_window_state",
+    "+computer_use_click",
+    "+computer_use_press_key",
+    "+computer_use_type_text",
+    "+computer_use_scroll",
+    "+computer_use_set_value",
+    "+computer_use_drag",
+    "+computer_use_perform_secondary_action",
+    "+computer_use_activate_window"
+  ]
+}
+```
+
+The `+` entries keep your existing default tools. Restart Pi or use `/reload`, then ask it to call `computer_use_list_apps` or `computer_use_list_windows` directly. Screenshots and text are returned in the tool result; no script or `image()` call is needed. On macOS, activate its ten `computer_use_<method>` tools instead; `/computer-use-status` lists the platform methods.
+
+### Optional script composition
+
+If you prefer scripts, enable Pi's built-in codemode with `pi --tools +codemode`. The following examples are optional, not required for direct calls.
 
 On macOS these are the ten app-server methods, such as `computer_use_get_app_state` and `computer_use_click`:
 
@@ -47,7 +77,7 @@ const next = await tools.computer_use_get_app_state({ app: "TextEdit" });
 text(next.text);
 ```
 
-The extension does not change which tools are active. Turn on `codemode` with `"defaultTools": ["+codemode"]` in `settings.json` or with `pi --tools +codemode`; Pi also turns it on when an MCP server uses `codemode` exposure. When neither `codemode` nor a Computer Use tool is active, the extension shows one notice at the first prompt.
+When neither a Computer Use tool nor codemode is active, the extension shows one notice explaining direct activation. It never changes other tools or your saved configuration.
 
 `computer_use_get_app_state` resolves to `{ app, text, screenshot }`, where `screenshot` is an image block for `image()` or `null`. It may return an accessibility-tree diff after the first inspection; pass `disableDiff: true` to request a fresh full tree. `computer_use_list_apps` resolves to the official text inventory produced by the app-server transport; unlike native `@oai/sky`, that transport does not provide the structured app array. Other methods resolve to their official text output. A failed call rejects with the official error text. Calls run one at a time, and calls after `get_app_state` reuse the signed session until the agent settles. The namespace instructions, available from `describeNamespace("computer_use")`, summarise this workflow.
 
@@ -143,7 +173,9 @@ npm test
 npm run build
 ```
 
-`npm test` includes one live call through the signed component of the host platform (`list_apps`); the other platform's transport tests are skipped. `npm run test:ci` skips those live calls, so it can run without ChatGPT/Codex installed.
+`npm test` includes one live call through the signed component of the host platform (`list_apps`); the other platform's transport tests are skipped. `npm run test:ci` skips those live calls, so it can run without ChatGPT/Codex installed. SDK tests also verify that both platforms' tools can be activated and called with no codemode extension registered.
+
+The development-only Pi dependency pins an older Undici. The scoped `overrides` entry upgrades it to a patched version; it does not modify the user's installed Pi.
 
 ### Windows preview builds
 
@@ -152,11 +184,11 @@ The `Package Windows preview` GitHub Actions workflow checks, tests and packs th
 To install a downloaded preview in Pi without building it locally:
 
 ```powershell
-npm install --prefix ./computer-use-preview --omit=dev --legacy-peer-deps ./codex-computer-use-mcp-0.6.2-windows.1.tgz
+npm install --prefix ./computer-use-preview --omit=dev --legacy-peer-deps ./codex-computer-use-mcp-0.6.2-windows.2.tgz
 pi install ./computer-use-preview/node_modules/codex-computer-use-mcp
 ```
 
-Keep that directory: Pi loads local packages in place. Restart Pi (or use `/reload`), then run `/computer-use-status`. To test via codemode without changing your saved tool configuration, launch `pi --tools +codemode`.
+Keep that directory: Pi loads local packages in place. Enable direct calls with the `defaultTools` entries above, restart Pi (or use `/reload`), then run `/computer-use-status`. You can start Pi normally; `--tools +codemode` is not required.
 
 ## License
 

@@ -203,7 +203,7 @@ test("Pi registers the ten official methods as codemode tools without changing t
 	assert.equal(closed, 2);
 });
 
-test("codemode calls share one session and return structured app state", async () => {
+test("direct tool calls share one session and return structured app state", async () => {
 	const calls: Array<{ method: DirectMethod; args: DirectToolArguments; supportsOpenAiFormElicitation?: boolean }> = [];
 	const { tool } = loadAdapter({
 		async execute(method, args, dependencies) {
@@ -258,7 +258,7 @@ test("an official error rejects the call with the official text", async () => {
 	);
 });
 
-test("Pi warns once when neither codemode nor a Computer Use tool is active", async () => {
+test("Pi suggests direct activation when no Computer Use entry point is active", async () => {
 	const session = { async execute() { return { isError: false, content: [] }; }, async close() {} };
 	const notices: string[] = [];
 	const ctx = { ui: { notify(message: string) { notices.push(message); } } };
@@ -268,7 +268,8 @@ test("Pi warns once when neither codemode nor a Computer Use tool is active", as
 	inactive.handlers.get("before_agent_start")?.({}, ctx);
 	inactive.handlers.get("before_agent_start")?.({}, ctx);
 	assert.equal(notices.length, 1);
-	assert.match(notices[0], /\+codemode/);
+	assert.match(notices[0], /computer_use_<method> tools directly/);
+	assert.doesNotMatch(notices[0], /\+codemode/);
 
 	for (const active of [["read", "codemode"], ["read", computerUseToolName("click")]]) {
 		const reachable = loadAdapter(session, active);

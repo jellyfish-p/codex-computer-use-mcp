@@ -79,6 +79,8 @@ jobs:
           Windows preview of codex-computer-use-mcp, based on upstream PR #39.
 
           - Official Windows @oai/sky tools exposed through Pi and MCP.
+          - Direct Pi tool calls without codemode: activate the computer_use_<method> tools in defaultTools as shown in README.
+          - Updated runtime and development dependencies, including patched Zod and Undici.
           - Authenticode verification, verified Codex discovery and retained sessions.
           - Built and tested on a GitHub Windows runner with Node.js 24.
           - Live desktop acceptance tests are excluded from CI; the official ChatGPT/Codex Windows components must be installed locally.
