@@ -161,6 +161,7 @@ interface DirectStatus extends JsonObject {
 	brokerError?: string;
 	brokerVersion?: string;
 	clientBuild?: string;
+	codexPath?: string;
 	methods: DirectMethod[];
 }
 
@@ -175,6 +176,7 @@ export function getDirectStatus(stateRoot = defaultStateRoot()): DirectStatus {
 	try {
 		const verification = verifyOfficialDirectBroker({ configPath: status.configPath });
 		status.brokerVerified = true;
+		status.codexPath = verification.codexPath;
 		status.brokerVersion = verification.brokerVersion;
 		status.clientBuild = verification.clientBuild;
 	} catch (error) {
