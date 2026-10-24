@@ -1,0 +1,95 @@
+name: Package Windows preview
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*-windows.*'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Check source and Pi integration
+        run: |
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check:pi
+      - name: Test without an installed desktop runtime
+        run: npm run test:ci
+      - name: Pack and checksum
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$($package.version)") {
+            throw "Tag must match package.json version"
+          }
+          npm pack
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $filename = "$($package.name)-$($package.version).tgz"
+          $hash = (Get-FileHash $filename -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $filename" | Set-Content "$filename.sha256" -Encoding utf8
+          @{
+            name = $package.name
+            version = $package.version
+            commit = $env:GITHUB_SHA
+            filename = $filename
+            sha256 = $hash
+          } | ConvertTo-Json | Set-Content build-manifest.json -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-preview-package
+          path: |
+            *.tgz
+            *.tgz.sha256
+            build-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+  prerelease:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-preview-package
+          path: release
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          Windows preview of codex-computer-use-mcp, based on upstream PR #39.
+
+          - Official Windows @oai/sky tools exposed through Pi and MCP.
+          - Authenticode verification, verified Codex discovery and retained sessions.
+          - Built and tested on a GitHub Windows runner with Node.js 24.
+          - Live desktop acceptance tests are excluded from CI; the official ChatGPT/Codex Windows components must be installed locally.
+
+          The .tgz contains compiled dist files and the Pi extension. The .sha256 and build-manifest.json identify the exact build. This is a GitHub prerelease only, not an npm publication.
+          EOF
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release/* \
+              --verify-tag --prerelease \
+              --title "Windows preview $RELEASE_TAG" \
+              --notes-file release-notes.md
+          fi

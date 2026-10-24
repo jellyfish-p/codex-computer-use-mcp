@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,6 +29,9 @@ test("stdio MCP exposes the Computer Use tools and status", async () => {
 		stderr: "pipe",
 	});
 	try {
+		// Tool discovery and status must work on CI without an installed desktop runtime.
+		const missingComponent = path.join(stateRoot, "missing-component");
+		await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ computerUseAppPath: missingComponent }));
 		await client.connect(transport);
 		assert.deepEqual(client.getServerVersion(), { name: "codex-computer-use-mcp", version: packageVersion });
 		const listed = await client.listTools();
@@ -50,9 +53,12 @@ test("stdio MCP exposes the Computer Use tools and status", async () => {
 			platform: z.literal(platform.name),
 			methods: z.array(z.string()),
 			brokerVerified: z.boolean(),
+			brokerError: z.string(),
 		}).passthrough().parse(statusResult.structuredContent);
 		assert.deepEqual(status.methods, [...platform.methods]);
-		assert.equal(status.brokerVerified, true);
+		assert.equal(status.brokerVerified, false);
+		assert.match(status.brokerError, /was not found/);
+		assert.ok(status.brokerError.includes(missingComponent));
 	} finally {
 		await client.close().catch(() => undefined);
 		await rm(stateRoot, { recursive: true, force: true });

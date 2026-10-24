@@ -143,7 +143,20 @@ npm test
 npm run build
 ```
 
-`npm test` includes one live call through the signed component of the host platform (`list_apps`); the other platform's transport tests are skipped.
+`npm test` includes one live call through the signed component of the host platform (`list_apps`); the other platform's transport tests are skipped. `npm run test:ci` skips those live calls, so it can run without ChatGPT/Codex installed.
+
+### Windows preview builds
+
+The `Package Windows preview` GitHub Actions workflow checks, tests and packs the package on Windows with Node.js 24. It can run manually to produce an artifact. Pushing a `v*-windows.*` tag matching `package.json` also creates a GitHub prerelease containing the compiled npm `.tgz`, its SHA-256 checksum and a build manifest. Nothing is published to npm.
+
+To install a downloaded preview in Pi without building it locally:
+
+```powershell
+npm install --prefix ./computer-use-preview --omit=dev --legacy-peer-deps ./codex-computer-use-mcp-0.6.2-windows.1.tgz
+pi install ./computer-use-preview/node_modules/codex-computer-use-mcp
+```
+
+Keep that directory: Pi loads local packages in place. Restart Pi (or use `/reload`), then run `/computer-use-status`. To test via codemode without changing your saved tool configuration, launch `pi --tools +codemode`.
 
 ## License
 
