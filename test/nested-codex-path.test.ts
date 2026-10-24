@@ -9,7 +9,10 @@ import test from "node:test";
 const broker = await import("../src/direct-broker.ts");
 const service = await import("../src/direct-service.ts");
 
-test("the nested Computer Use server receives only the verified Codex path", async (t) => {
+// The nested app-server transport is macOS-only; Windows uses the @oai/sky helper.
+const macTest = process.platform === "darwin" ? test : test.skip;
+
+macTest("the nested Computer Use server receives only the verified Codex path", async (t) => {
 	const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "cu-nested-codex.")));
 	const previous = { CODEX_CLI_PATH: process.env.CODEX_CLI_PATH };
 	try {
