@@ -78,14 +78,14 @@ jobs:
           cat > release-notes.md <<'EOF'
           Windows preview of codex-computer-use-mcp, based on upstream PR #39.
 
-          - Official Windows @oai/sky tools exposed through Pi and MCP.
-          - Direct Pi tool calls without codemode: activate the computer_use_<method> tools in defaultTools as shown in README.
-          - Updated runtime and development dependencies, including patched Zod and Undici.
-          - Authenticode verification, verified Codex discovery and retained sessions.
-          - Built and tested on a GitHub Windows runner with Node.js 24.
-          - Live desktop acceptance tests are excluded from CI; the official ChatGPT/Codex Windows components must be installed locally.
+          - Pi now owns the Windows helper turn lifecycle: pauses between tool calls no longer end the turn after 15 seconds. Task completion, cancellation, shutdown and request failures still clean up the session; MCP retains its idle fallback.
+          - Bundled an original computer-use skill with Windows and macOS guidance for window selection, input focus, observe-act-verify and recovery.
+          - Direct Pi tools now expose short workflow guidelines without requiring codemode. Use /skill:computer-use to load the full skill.
+          - Added official Windows mouse button aliases (l/r/m) and regression coverage for all thirteen Windows methods, lifecycle handling, skill discovery and packaging.
+          - Preserved official app approvals, Authenticode verification, verified Codex discovery and zero nested model turns.
+          - Built and tested on a GitHub Windows runner with Node.js 24. Live desktop acceptance tests are excluded from CI; install the official ChatGPT/Codex Windows components locally.
 
-          The .tgz contains compiled dist files and the Pi extension. The .sha256 and build-manifest.json identify the exact build. This is a GitHub prerelease only, not an npm publication.
+          The .tgz contains compiled dist files, the Pi extension and the original skill with its references. Local research notes and captured Codex source documents are excluded. The .sha256 and build-manifest.json identify the exact build. This is a GitHub prerelease only, not an npm publication.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release/* --clobber

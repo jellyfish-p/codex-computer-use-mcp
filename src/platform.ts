@@ -31,7 +31,10 @@ import {
 	validateWindowsArguments,
 } from "./windows-tools.ts";
 
-export type SessionOptions = Pick<DirectBrokerOptions, "configPath" | "supportsOpenAiFormElicitation">;
+export type SessionOptions = Pick<DirectBrokerOptions, "configPath" | "supportsOpenAiFormElicitation"> & {
+	/** Windows idle-turn fallback; null means the caller owns task-end cleanup. */
+	turnIdleMs?: number | null;
+};
 export type CallOptions = Pick<DirectBrokerOptions, "timeoutMs" | "signal" | "onElicitation" | "supportsOpenAiFormElicitation" | "configPath">;
 
 /** One official Computer Use transport: macOS app-server MCP, or the Windows `@oai/sky` helper. */

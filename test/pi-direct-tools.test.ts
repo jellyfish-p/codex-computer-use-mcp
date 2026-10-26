@@ -60,6 +60,9 @@ for (const platform of [MAC_PLATFORM, WINDOWS_PLATFORM]) {
 			try {
 				await session.bindExtensions({});
 				assert.equal(session.getAllTools().some((tool) => tool.name === "codemode"), false);
+				assert.match(session.systemPrompt, /read the computer-use skill/i);
+				assert.match(session.systemPrompt, /verify input focus before typing/i);
+				assert.match(session.systemPrompt, /inspect before retrying/i);
 				const active = session.getActiveToolNames();
 				for (const name of [...names, "read", "bash", "edit", "write"]) assert.ok(active.includes(name), name);
 				// This is Pi's model-visible wrapped tool, not a raw adapter function.

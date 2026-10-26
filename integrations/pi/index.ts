@@ -22,17 +22,22 @@ import { type DirectMethod, type JsonObject } from "../../dist/tools.js";
 
 const jsonObjectSchema = z.record(z.string(), z.json());
 
+// Unlike namespace.instructions, tool guidelines also reach direct-tool sessions.
+const computerUseGuidelines = [
+  "Before desktop interaction, read the computer-use skill when available. Computer Use tools can be called directly; codemode is optional.",
+  "Computer Use: inspect the intended app/window before acting, resolve ambiguous targets, verify input focus before typing, then refresh after each state-dependent action. If an action's outcome is unknown, inspect before retrying; stop on user cancellation or denied approval.",
+];
+
 export const COMPUTER_USE_NAMESPACE: ToolNamespace = {
   name: "computer_use",
-  description: "OpenAI's official signed macOS Computer Use. Call get_app_state for an app before acting on it, run known actions in sequence, then call get_app_state again before deciding the next step.",
+  description: "OpenAI's official signed macOS Computer Use. Inspect the intended app with get_app_state, make one state-dependent action, then refresh before deciding the next step.",
   instructions: `Call the computer_use_<method> tools directly; a script executor is not required. Optional script composition example:
 
 const state = await tools.computer_use_get_app_state({ app: "TextEdit" });
 text(state.text);
-image(state.screenshot);
-await tools.computer_use_click({ app: "TextEdit", element_index: "7" });
-await tools.computer_use_type_text({ app: "TextEdit", text: "hello" });
+if (state.screenshot) image(state.screenshot);
 
+Inspect that output before choosing a target. Verify focus before typing and refresh state after each state-dependent action. Read the computer-use skill for platform-specific workflow and recovery.
 get_app_state resolves to { app, text, screenshot }. text is the accessibility tree; after the first inspection it may be a diff, so pass disableDiff: true for a fresh full tree. screenshot is an image block for image(), or null.
 Take element_index values from the latest get_app_state text, and inspect again after acting.
 Calls run one at a time, in request order.
@@ -41,22 +46,20 @@ list_apps resolves to the official text inventory. A failed call rejects with th
 
 export const WINDOWS_COMPUTER_USE_NAMESPACE: ToolNamespace = {
   name: "computer_use",
-  description: "OpenAI's official signed Windows Computer Use. Pick a window from list_apps or list_windows, call get_window_state for it before acting, run known actions in sequence, then call get_window_state again before deciding the next step.",
+  description: "OpenAI's official signed Windows Computer Use. Choose the intended returned window, inspect it with get_window_state, make one state-dependent action, then refresh before deciding the next step.",
   instructions: `Call the computer_use_<method> tools directly; a script executor is not required. Optional script composition example:
 
 const { apps } = await tools.computer_use_list_apps({});
-const window = apps.find((app) => app.displayName === "Notepad")?.windows[0];
-const state = await tools.computer_use_get_window_state({ window, include_text: true });
-text(state.accessibility?.tree ?? "");
-for (const shot of state.screenshots) if (shot.image) image(shot.image);
-await tools.computer_use_click({ window, element_index: 7 });
-await tools.computer_use_type_text({ window, text: "hello" });
+text(apps);
+
+Inspect that inventory and choose the task-specific returned window, resolving ambiguity rather than taking the first one. Pass that object unchanged to tools.computer_use_get_window_state({ window, include_text: true }). In codemode, emit state.accessibility?.tree with text() and each non-null state.screenshots[].image with image(), then inspect the output before choosing an action. Use store()/load() for small JSON references across scripts; local variables do not persist.
+Verify the editable region and focus before typing; refresh state after each state-dependent action. Inspect unknown outcomes before retrying and stop on user cancellation or denied approval. Read the computer-use skill for platform-specific recovery.
 
 list_apps resolves to { apps } and list_windows to { windows }. A window is { app, id, title }; pass it unchanged as the window argument of later calls, and use launch_app for an app without an open window.
 get_window_state resolves to { window, accessibility, screenshots }. accessibility.tree is the indexed element tree when include_text is true; each screenshot carries an image block for image() plus its id, size and origin. Take element_index values from the latest get_window_state, and inspect again after acting.
 scroll takes a window-relative x, y start point and scrollX, scrollY deltas. press_key uses keysym names such as Return, Tab or Control_L+a.
 Calls run one at a time, in request order. The first use of an app asks for approval in Pi. A failed call rejects with the official error text.
-Computer Use holds the desktop during a turn, which ends when the agent settles or after 15 s without calls; element indexes are valid within one turn, so inspect again before acting after a pause.`,
+Pi keeps the Computer Use turn open while the task is running, including pauses between calls, and releases it when the agent settles, is cancelled or shuts down. Request timeouts and failures still close the session. Observe again after UI changes or session loss; a retained turn does not make old element indexes or screenshots current.`,
 };
 
 export function computerUseNamespace(platform: ComputerUsePlatform): ToolNamespace {
@@ -316,7 +319,7 @@ type ComputerUseSession = Pick<DirectSessionExecutor, "execute" | "close">;
 
 export default function directComputerUse(
   pi: ExtensionAPI,
-  session: ComputerUseSession = new DirectSessionExecutor(),
+  session: ComputerUseSession = new DirectSessionExecutor({ turnIdleMs: null }),
   platform: ComputerUsePlatform = hostPlatform(),
 ) {
   const stateRoot = process.env.CODEX_COMPUTER_USE_HOME || path.join(getAgentDir(), "direct-computer-use");
@@ -342,6 +345,7 @@ export default function directComputerUse(
       name: computerUseToolName(method),
       label: `Computer Use ${method}`,
       description: platform.metadata[method].description,
+      promptGuidelines: computerUseGuidelines,
       // SAFETY: Pi accepts standard JSON Schema objects as custom-tool parameter schemas.
       parameters: platform.inputSchemas[method] as any,
       // SAFETY: Pi accepts standard JSON Schema objects as custom-tool output schemas.

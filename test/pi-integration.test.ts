@@ -132,7 +132,7 @@ interface TestEventContext {
 	ui: Pick<TestUi, "notify">;
 }
 
-type TestEvent = Record<string, never>;
+type TestEvent = { aborted?: boolean };
 type TestHandler = (event: TestEvent, ctx: TestEventContext) => void | Promise<void>;
 
 interface RegisteredTool {
@@ -150,7 +150,7 @@ interface RegisteredTool {
 }
 
 function loadAdapter(
-	session: { execute: DirectSessionExecutor["execute"]; close(): Promise<void> },
+	session: { execute: DirectSessionExecutor["execute"]; close(): Promise<void> } | undefined,
 	active = ["read"],
 	platform: ComputerUsePlatform = MAC_PLATFORM,
 ) {
@@ -201,6 +201,45 @@ test("Pi registers the ten official methods as codemode tools without changing t
 	await handlers.get("agent_settled")?.({}, { ui: noUi });
 	await handlers.get("session_shutdown")?.({}, { ui: noUi });
 	assert.equal(closed, 2);
+});
+
+test("Pi owns Windows turn cleanup on settlement, cancellation and shutdown rather than model turns", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "pi-windows-lifecycle-test."));
+	const previousHome = process.env.CODEX_COMPUTER_USE_HOME;
+	process.env.CODEX_COMPUTER_USE_HOME = root;
+	const idlePolicies: Array<number | null | undefined> = [];
+	let closed = 0;
+	const platform: ComputerUsePlatform = {
+		...WINDOWS_PLATFORM,
+		async createSession(options) {
+			idlePolicies.push(options.turnIdleMs);
+			return {
+				async call() { return brokerResult("apps"); },
+				async close() { closed += 1; },
+			};
+		},
+	};
+	const { tool, handlers } = loadAdapter(undefined, ["computer_use_list_apps"], platform);
+	try {
+		assert.equal(handlers.has("turn_end"), false, "a model response is not the end of a task");
+		for (const [event, payload] of [
+			["agent_settled", {}],
+			["agent_settled", { aborted: true }],
+			["session_shutdown", {}],
+		] as const) {
+			await tool("list_apps").execute("list", {}, undefined, undefined, headlessContext);
+			assert.equal(idlePolicies.at(-1), null, "Pi must explicitly disable the shared idle fallback");
+			const before = closed;
+			await handlers.get(event)?.(payload, { ui: noUi });
+			assert.equal(closed, before + 1, event);
+		}
+		assert.equal(closed, 3);
+	} finally {
+		await handlers.get("session_shutdown")?.({}, { ui: noUi });
+		if (previousHome === undefined) delete process.env.CODEX_COMPUTER_USE_HOME;
+		else process.env.CODEX_COMPUTER_USE_HOME = previousHome;
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test("direct tool calls share one session and return structured app state", async () => {

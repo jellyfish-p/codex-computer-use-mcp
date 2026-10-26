@@ -11,6 +11,8 @@ import type { DirectMethod, DirectToolArguments } from "./tools.ts";
 interface DirectSessionExecutorDependencies {
 	createSession?: ComputerUsePlatform["createSession"];
 	idleTimeoutMs?: number;
+	/** Windows turn fallback, distinct from the retained session's idle timeout. */
+	turnIdleMs?: number | null;
 	platform?: ComputerUsePlatform;
 }
 
@@ -85,6 +87,7 @@ export class DirectSessionExecutor {
 							this.session = await (this.dependencies.createSession ?? platform.createSession)({
 								supportsOpenAiFormElicitation: dependencies.supportsOpenAiFormElicitation === true,
 								configPath: pathConfigFile(dependencies.stateRoot ?? defaultStateRoot()),
+								turnIdleMs: this.dependencies.turnIdleMs,
 							});
 							return this.session.call(directMethod, args, options);
 						},

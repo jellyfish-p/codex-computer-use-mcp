@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { z } from "zod";
+import { DefaultPackageManager, loadSkills, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 const execFileAsync = promisify(execFile);
 // npm is a .cmd shim on Windows, which Node only runs through a shell.
@@ -42,8 +43,12 @@ test("packed package installs and starts from a plain npm consumer", async () =>
 			"dist/mcp-server.js",
 			"dist/version.js",
 			"integrations/pi/index.ts",
+			"skills/computer-use/SKILL.md",
+			"skills/computer-use/references/windows.md",
+			"skills/computer-use/references/macos.md",
 			"package.json",
 		]) assert.ok(files.includes(required), required);
+		assert.equal(files.some((file) => file.startsWith("docs/")), false, "local upstream reference snapshots must not be published");
 		for (const excluded of ["package-lock.json", "src/version.ts", "test/package.test.ts", "tsconfig.json"]) {
 			assert.equal(files.includes(excluded), false, excluded);
 		}
@@ -60,6 +65,24 @@ test("packed package installs and starts from a plain npm consumer", async () =>
 		assert.deepEqual(Object.keys(installedPackage.dependencies).sort(), ["@modelcontextprotocol/sdk", "zod"]);
 		await assert.rejects(access(path.join(consumer, "node_modules", "typescript")));
 		await assert.rejects(access(path.join(consumer, "node_modules", "@types", "node")));
+
+		const agentDir = path.join(root, "pi-agent");
+		const packages = new DefaultPackageManager({ cwd: consumer, agentDir, settingsManager: SettingsManager.inMemory() });
+		const resources = await packages.resolveExtensionSources([installedRoot], { temporary: true });
+		// Use Pi's package discovery and skill parser without loading the user's global skills.
+		const { skills, diagnostics } = loadSkills({
+			cwd: consumer,
+			agentDir,
+			includeDefaults: false,
+			skillPaths: resources.skills.filter((resource) => resource.enabled).map((resource) => resource.path),
+		});
+		assert.deepEqual(diagnostics, []);
+		assert.deepEqual(skills.map((skill) => skill.name), ["computer-use"]);
+		assert.equal(skills[0].disableModelInvocation, false);
+		assert.equal(skills[0].filePath, path.join(installedRoot, "skills", "computer-use", "SKILL.md"));
+		for (const platform of ["windows", "macos"]) {
+			await access(path.join(skills[0].baseDir, "references", `${platform}.md`));
+		}
 
 		const status = await execFileAsync(process.execPath, [path.join(installedRoot, "dist", "mcp-server.js"), "--status"]);
 		assert.equal(JSON.parse(status.stdout).permissionMode, "no-permissions");

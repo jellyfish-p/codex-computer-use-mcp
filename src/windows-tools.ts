@@ -53,7 +53,7 @@ const WINDOWS_TOOL_SCHEMAS = {
 		window: windowObject,
 		click_count: z.number().int().describe("Number of clicks. Defaults to 1").optional(),
 		element_index: elementIndex.optional(),
-		mouse_button: z.enum(["left", "right", "middle"]).describe("Mouse button to click. Defaults to left.").optional(),
+		mouse_button: z.enum(["left", "right", "middle", "l", "r", "m"]).describe("Mouse button to click, including the official l/r/m aliases. Defaults to left.").optional(),
 		screenshotId: screenshotId.optional(),
 		x: z.number().describe("Window-relative X coordinate").optional(),
 		y: z.number().describe("Window-relative Y coordinate").optional(),

@@ -34,6 +34,12 @@ pi install npm:codex-computer-use-mcp
 
 The extension registers the official Computer Use methods of the host platform as Pi tools named `computer_use_<method>`. **Codemode is optional:** Pi can declare these tools directly to the model when you activate them. The extension preserves Pi's `codemode` exposure for optional composition, but does not require a script executor or change the active tool set itself.
 
+### Included skill
+
+The package includes an original [`computer-use` skill](skills/computer-use/SKILL.md), registered through `pi.skills` and shipped with Windows and macOS references. Pi advertises it for desktop interaction; use `/skill:computer-use` to load it explicitly. It covers target selection, input focus, observe–act–verify, stale references and recovery using this adapter's tools, not Codex's `node_repl`.
+
+Active Computer Use tools also contribute short prompt guidelines, so direct-tool sessions receive the basic workflow without reading codemode namespace instructions. The skill and guidelines do not activate tools, add permission gates or replace official approvals. Installing or reloading the package discovers the skill unless you have disabled it in Pi's resource settings.
+
 ### Direct calls without codemode
 
 On Windows, add these entries to `defaultTools` in `~/.pi/agent/settings.json` (merge with any existing entries):
@@ -69,12 +75,8 @@ On macOS these are the ten app-server methods, such as `computer_use_get_app_sta
 ```js
 const state = await tools.computer_use_get_app_state({ app: "TextEdit" });
 text(state.text);
-image(state.screenshot);
-
-await tools.computer_use_click({ app: "TextEdit", element_index: "7" });
-await tools.computer_use_type_text({ app: "TextEdit", text: "hello" });
-const next = await tools.computer_use_get_app_state({ app: "TextEdit" });
-text(next.text);
+if (state.screenshot) image(state.screenshot);
+// Inspect this result before choosing an element or coordinate for the next call.
 ```
 
 When neither a Computer Use tool nor codemode is active, the extension shows one notice explaining direct activation. It never changes other tools or your saved configuration.
@@ -85,16 +87,13 @@ On Windows the official surface is the `@oai/sky` window API, so the tools are `
 
 ```js
 const { apps } = await tools.computer_use_list_apps({});
-const window = apps.find((app) => app.displayName === "Notepad")?.windows[0];
-const state = await tools.computer_use_get_window_state({ window, include_text: true });
-text(state.accessibility?.tree ?? "");
-for (const shot of state.screenshots) if (shot.image) image(shot.image);
-
-await tools.computer_use_click({ window, element_index: 7 });
-await tools.computer_use_type_text({ window, text: "hello" });
+text(apps);
+// Inspect the inventory and choose the task-specific window; do not assume windows[0].
 ```
 
-`computer_use_list_apps` resolves to `{ apps }`, `computer_use_list_windows` to `{ windows }` and `computer_use_get_window_state` to `{ window, accessibility, screenshots }`, the official JavaScript results; each screenshot carries an `image` block for `image()`. Other methods resolve to `ok`. The first use of an app raises the official approval request, which Pi shows as a selection between a session-only and a permanent approval. Any call opens the retained helper session, which is closed when the agent settles.
+Pass the chosen returned window unchanged to `tools.computer_use_get_window_state({ window, include_text: true })`, emit its tree with `text()` and its images with `image()`, and inspect the output before choosing a state-dependent action. Verify input focus before typing and refresh after acting. In codemode, use `store()` / `load()` for small JSON references across scripts; these are not a persistent Node REPL and saved references can become stale.
+
+`computer_use_list_apps` resolves to `{ apps }`, `computer_use_list_windows` to `{ windows }`, `computer_use_get_window` to `{ window }` and `computer_use_get_window_state` to `{ window, accessibility, screenshots }`. These adapt the native arrays/window and screenshot URLs into tool-friendly values; each screenshot carries an `image` block for `image()`. Other methods resolve to `ok`. The first use of an app raises the official approval request, which Pi shows as a selection between a session-only and a permanent approval. Any call opens the retained helper session, which is closed when the agent settles.
 
 Use `/computer-use-status` to inspect the installed component and transport status.
 
@@ -103,8 +102,10 @@ To run a source checkout:
 ```bash
 npm ci
 npm run build
-pi -ne -e /absolute/path/to/codex-computer-use-mcp/integrations/pi/index.ts
+pi -ne -e /absolute/path/to/codex-computer-use-mcp
 ```
+
+Loading the package directory includes its skill. Loading only `integrations/pi/index.ts` supplies the extension and short tool guidelines, but does not discover the package skill automatically.
 
 ## MCP
 
@@ -138,7 +139,9 @@ On macOS, production calls require verified OpenAI-signed app-server and Compute
 
 On Windows tools run through the `@oai/sky` JavaScript client rather than the macOS app-server MCP transport. That client runs the signed `codex-computer-use.exe` helper over stdio; the helper uses the verified Codex binary for its own authentication, without starting a model turn. The adapter loads that official client from the installed runtime after verifying the helper's Authenticode signature (status `Valid`, signer `OpenAI OpCo, LLC`) and its canonical location. The official client receives app-approval requests from the helper and expects a `node_repl` host to answer them; the adapter provides only that host surface and forwards each request as an elicitation. The host owns approval memory, as in Codex: a session approval is remembered for the lifetime of the Pi or MCP server process, and an "always" approval is written to `windows-approvals.json` in the state directory (mode 0600). Both map the call's target — the window's `app` field or `launch_app`'s `app` — to the helper's own app id, which is what later requests are marked with; delete the file to forget permanent approvals. Any call opens the retained helper session; closing it ends the helper process.
 
-While a helper turn is open, Computer Use shows its "ChatGPT is using your computer" overlay and holds the mouse and keyboard; element indexes from `get_window_state` are valid only within that turn. Codex ends the turn with the model's turn. Pi closes the session when the agent settles, and the adapter also ends a turn after `CODEX_COMPUTER_USE_TURN_IDLE_MS` (default 15000) without calls, which is how MCP clients release the desktop between actions. A call in a new turn must inspect the window again before acting on an element; the helper says so. Pressing Esc cancels the current turn at any time.
+While a helper turn is open, Computer Use shows its "ChatGPT is using your computer" overlay and holds the mouse and keyboard; element indexes from `get_window_state` are valid only within that turn and can become stale sooner when the UI changes. Pi owns the task lifecycle: it keeps the turn open across model thinking and pauses between calls, then closes the session when the agent settles (including cancellation) or the Pi session shuts down. Request timeouts and failures still clean up the helper. Long-running Pi tasks can therefore hold the desktop longer; pressing Esc cancels the current turn at any time.
+
+MCP clients do not provide the same task-ended signal, so they retain an idle-turn fallback: `CODEX_COMPUTER_USE_TURN_IDLE_MS` (default 15000) ends a turn after that many milliseconds without calls. This environment setting does not shorten Pi-owned turns. Ending an idle turn releases the desktop without closing the helper; a later call starts a new turn and must inspect the window again before acting on an element. The MCP server separately closes retained sessions after 120 seconds of inactivity.
 
 On macOS, closing a retained session sends a matching native `turn-ended` notification through the signed app-server before terminating its private processes. This lets the shared Computer Use service remove that session's software cursor without terminating the service. Cancellation and tool timeouts briefly wait for an outstanding native reply before notifying, so a late reply cannot recreate the cursor after cleanup. A stalled request, failed notification, or lost transport can prevent native cleanup. The call still returns its result, because the action already ran, and private process teardown still runs. `brokerCleanupVerified` describes private process cleanup, not visual confirmation that a cursor disappeared.
 
@@ -184,7 +187,7 @@ The `Package Windows preview` GitHub Actions workflow checks, tests and packs th
 To install a downloaded preview in Pi without building it locally:
 
 ```powershell
-npm install --prefix ./computer-use-preview --omit=dev --legacy-peer-deps ./codex-computer-use-mcp-0.6.2-windows.2.tgz
+npm install --prefix ./computer-use-preview --omit=dev --legacy-peer-deps ./codex-computer-use-mcp-0.6.2-windows.3.tgz
 pi install ./computer-use-preview/node_modules/codex-computer-use-mcp
 ```
 

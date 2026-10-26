@@ -38,9 +38,9 @@ const CLIENT_MODULE_RELATIVE_PATH = "dist/project/cua/sky_js/src/targets/windows
 const TRANSPORT_MODULE_RELATIVE_PATH = "dist/project/cua/sky_js/src/targets/windows/internal/helper_transport.js";
 // A helper turn shows the official "ChatGPT is using your computer" overlay and
 // locks the user's input until the turn ends; element indexes are valid only
-// within a turn. Codex ends the turn with the model's turn. Pi closes the session
-// when the agent settles; for MCP clients the broker ends an idle turn after this
-// long, which must exceed a model's pause between an inspection and its action.
+// within a turn. Pi owns the lifecycle and disables the idle timer, closing the
+// session when the agent settles. Hosts without a task-ended signal (such as MCP)
+// use this idle fallback to release the desktop between calls.
 const DEFAULT_TURN_IDLE_MS = 15_000;
 const TURN_IDLE_ENV = "CODEX_COMPUTER_USE_TURN_IDLE_MS";
 
@@ -296,8 +296,8 @@ export interface WindowsBrokerOptions extends Pick<DirectBrokerOptions, "timeout
 	skipSignatureVerification?: boolean;
 	/** Test-only runtime factory, used only with skipSignatureVerification. */
 	loadRuntime?: () => Promise<WindowsSkyRuntime>;
-	/** Test-only idle period before the helper turn ends. */
-	turnIdleMs?: number;
+	/** Idle fallback for hosts without lifecycle events; null lets the host own turn cleanup. */
+	turnIdleMs?: number | null;
 }
 
 async function loadOfficialRuntime(client: OfficialWindowsClient): Promise<WindowsSkyRuntime> {
@@ -557,6 +557,7 @@ export async function createOfficialWindowsToolSession(options: WindowsBrokerOpt
 	};
 	const scheduleTurnEnd = (): void => {
 		clearTurnTimer();
+		if (options.turnIdleMs === null) return;
 		turnTimer = setTimeout(() => { void endTurn(); }, options.turnIdleMs ?? configuredTurnIdleMs());
 		turnTimer.unref();
 	};

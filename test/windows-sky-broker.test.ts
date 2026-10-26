@@ -59,7 +59,7 @@ function fakeClient(overrides: Partial<WindowsSkyClient> = {}) {
 	return { client, runtime, calls, turnsEnded, closed: () => closed };
 }
 
-function testSession(runtime: WindowsSkyRuntime, turnIdleMs = 50) {
+function testSession(runtime: WindowsSkyRuntime, turnIdleMs: number | null = 50) {
 	return createOfficialWindowsToolSession({ skipSignatureVerification: true, loadRuntime: async () => runtime, turnIdleMs });
 }
 
@@ -242,14 +242,28 @@ test("helper rejections are official errors while helper exits are broker failur
 	assert.equal(closed(), 1);
 });
 
-test("cancellation closes the helper and rejects the pending call", async () => {
-	const controller = new AbortController();
+for (const turnIdleMs of [50, null]) {
+	test(`cancellation closes the helper and rejects the pending call (idle ${turnIdleMs})`, async () => {
+		const controller = new AbortController();
+		const { runtime, closed } = fakeClient({ get_window_state: () => new Promise<JsonValue>(() => undefined) });
+		const session = await testSession(runtime, turnIdleMs);
+		const pending = session.call("get_window_state", { window }, { signal: controller.signal });
+		controller.abort();
+		await assert.rejects(pending, /cancelled/);
+		await assert.rejects(session.close(), /cancelled/);
+		assert.equal(closed(), 1);
+	});
+}
+
+test("lifecycle ownership does not disable request timeouts or helper cleanup", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
 	const { runtime, closed } = fakeClient({ get_window_state: () => new Promise<JsonValue>(() => undefined) });
-	const session = await testSession(runtime);
-	const pending = session.call("get_window_state", { window }, { signal: controller.signal });
-	controller.abort();
-	await assert.rejects(pending, /cancelled/);
-	await assert.rejects(session.close(), /cancelled/);
+	const session = await testSession(runtime, null);
+	const pending = session.call("get_window_state", { window }, { timeoutMs: 100 });
+	const rejected = assert.rejects(pending, /request timed out/);
+	t.mock.timers.tick(100);
+	await rejected;
+	await assert.rejects(session.close(), /request timed out/);
 	assert.equal(closed(), 1);
 });
 
@@ -259,6 +273,52 @@ test("one-shot Windows calls close the helper and report verified cleanup", asyn
 	assert.equal(result.isError, false);
 	assert.equal(result.brokerCleanupVerified, true);
 	assert.equal(closed(), 1);
+});
+
+test("a lifecycle-managed helper turn survives long pauses until the host closes it", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const fake = fakeClient();
+	const session = await createOfficialWindowsToolSession({
+		skipSignatureVerification: true,
+		loadRuntime: async () => fake.runtime,
+		turnIdleMs: null,
+	});
+	try {
+		await session.call("get_window_state", { window, include_text: true });
+		const observedTurn = nodeReplHost().requestMeta.turn_id;
+		t.mock.timers.tick(60_000);
+		assert.equal(fake.turnsEnded.length, 0, "thinking time must not end the host's turn");
+		await session.call("click", { window, element_index: 1 });
+		assert.equal(nodeReplHost().requestMeta.turn_id, observedTurn);
+		assert.equal(fake.closed(), 0);
+	} finally {
+		await session.close();
+	}
+	assert.equal(fake.closed(), 1);
+	await assert.rejects(session.call("list_apps", {}), /session is closed/);
+});
+
+test("hosts without lifecycle ownership keep the default idle-turn fallback", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const previousIdle = process.env.CODEX_COMPUTER_USE_TURN_IDLE_MS;
+	delete process.env.CODEX_COMPUTER_USE_TURN_IDLE_MS;
+	const fake = fakeClient();
+	const session = await createOfficialWindowsToolSession({ skipSignatureVerification: true, loadRuntime: async () => fake.runtime });
+	try {
+		await session.call("list_windows", {});
+		const firstTurn = nodeReplHost().requestMeta.turn_id;
+		t.mock.timers.tick(14_999);
+		assert.equal(fake.turnsEnded.length, 0);
+		t.mock.timers.tick(1);
+		assert.equal(fake.turnsEnded.length, 1);
+		assert.equal(fake.closed(), 0, "ending a turn is not closing the helper");
+		await session.call("list_windows", {});
+		assert.notEqual(nodeReplHost().requestMeta.turn_id, firstTurn);
+	} finally {
+		await session.close();
+		if (previousIdle === undefined) delete process.env.CODEX_COMPUTER_USE_TURN_IDLE_MS;
+		else process.env.CODEX_COMPUTER_USE_TURN_IDLE_MS = previousIdle;
+	}
 });
 
 test("the helper turn ends after the idle period and later calls start a new turn", async () => {
