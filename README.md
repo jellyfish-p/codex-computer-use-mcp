@@ -4,6 +4,8 @@ Expose OpenAI's official signed Computer Use tools for macOS and Windows directl
 
 OpenAI does not produce or endorse this independent project. It relies on an experimental app-server API and installed ChatGPT components that may change.
 
+This fork uses the npm name `@jellyfish-p/codex-computer-use-mcp`. The unscoped `codex-computer-use-mcp` package belongs to the [upstream project](https://github.com/tmustier/codex-computer-use-mcp). The original author and MIT license are retained; the CLI command remains `codex-computer-use-mcp`.
+
 ## Requirements
 
 - Node.js 22 or newer
@@ -26,11 +28,13 @@ Windows Computer Use asks for approval the first time an app is used. The adapte
 
 ## Pi
 
-Install from npm:
+For an npm-published preview, install the scoped package:
 
 ```bash
-pi install npm:codex-computer-use-mcp
+pi install npm:@jellyfish-p/codex-computer-use-mcp@windows-preview
 ```
+
+For a published stable release, use `pi install npm:@jellyfish-p/codex-computer-use-mcp@latest`. Source checkouts and downloaded archives also work without an npm publication. When switching from the old unscoped or local package, remove that old Pi package registration first to avoid registering the same tools twice.
 
 The extension registers the official Computer Use methods of the host platform as Pi tools named `computer_use_<method>`. **Codemode is optional:** Pi can declare these tools directly to the model when you activate them. The extension preserves Pi's `codemode` exposure for optional composition, but does not require a script executor or change the active tool set itself.
 
@@ -112,7 +116,7 @@ Loading the package directory includes its skill. Loading only `integrations/pi/
 Running the package binary starts a stdio MCP server with the same platform methods and `computer_use_status`:
 
 ```bash
-npx codex-computer-use-mcp
+npx @jellyfish-p/codex-computer-use-mcp@windows-preview
 ```
 
 Example Pi MCP configuration:
@@ -122,7 +126,7 @@ Example Pi MCP configuration:
   "mcpServers": {
     "computer-use": {
       "command": "npx",
-      "args": ["codex-computer-use-mcp"],
+      "args": ["@jellyfish-p/codex-computer-use-mcp@windows-preview"],
       "lifecycle": "lazy",
       "requestTimeoutMs": 180000,
       "directTools": false
@@ -180,18 +184,50 @@ npm run build
 
 The development-only Pi dependency pins an older Undici. The scoped `overrides` entry upgrades it to a patched version; it does not modify the user's installed Pi.
 
-### Windows preview builds
+### CI and releases
 
-The `Package Windows preview` GitHub Actions workflow checks, tests and packs the package on Windows with Node.js 24. It can run manually to produce an artifact. Pushing a `v*-windows.*` tag matching `package.json` also creates a GitHub prerelease containing the compiled npm `.tgz`, its SHA-256 checksum and a build manifest. Nothing is published to npm.
+The `CI and release` workflow (`.github/workflows/package.yml`) checks, tests and packs on Windows with Node.js 24 for pushes to `main`, pull requests and manual runs. Those runs only produce an artifact; they do not publish.
+
+Only version-tag **pushes** publish. The tag must match `package.json`, and only these version formats are accepted:
+
+| Tag | npm dist-tag | GitHub release |
+| --- | --- | --- |
+| `vX.Y.Z-windows.N` | `windows-preview` | Prerelease |
+| `vX.Y.Z` | `latest` | Stable release |
+
+The npm job downloads the tested archive, verifies its package name, version, commit, SHA-256 and SHA-512 integrity, then publishes with OIDC and provenance. It does not rebuild or require a desktop runtime. The GitHub Release receives that same archive, checksum and build manifest after the npm job succeeds. A rerun skips an existing npm version only when its integrity matches; it neither overwrites a published version nor moves dist-tags backwards.
+
+Trusted Publishing must authorize `jellyfish-p/codex-computer-use-mcp`, workflow `package.yml`, for `npm publish`. No `NPM_TOKEN` secret is needed. The first package publication must be bootstrapped by a maintainer before npm allows this trust relationship. The initial manual publication has no GitHub OIDC provenance; subsequent new versions published by CI do.
+
+To release, update the package and lockfile versions, commit to `main`, and push a matching version tag after CI succeeds. Preview versions stay off `latest`. Use the stable `vX.Y.Z` format only when intentionally releasing a stable version.
 
 To install a downloaded preview in Pi without building it locally:
 
 ```powershell
-npm install --prefix ./computer-use-preview --omit=dev --legacy-peer-deps ./codex-computer-use-mcp-0.6.2-windows.3.tgz
-pi install ./computer-use-preview/node_modules/codex-computer-use-mcp
+npm install --prefix ./computer-use-preview --omit=dev --legacy-peer-deps ./jellyfish-p-codex-computer-use-mcp-0.6.2-windows.4.tgz
+pi install ./computer-use-preview/node_modules/@jellyfish-p/codex-computer-use-mcp
 ```
 
 Keep that directory: Pi loads local packages in place. Enable direct calls with the `defaultTools` entries above, restart Pi (or use `/reload`), then run `/computer-use-status`. You can start Pi normally; `--tools +codemode` is not required.
+
+### npm publication preflight
+
+The package targets the public npm registry under `@jellyfish-p`, with the `windows-preview` dist-tag rather than `latest`. Check the publish payload without uploading:
+
+```bash
+npm publish --dry-run --access public --tag windows-preview
+```
+
+This runs `prepublishOnly`, including the full local test suite and its read-only official helper check. A successful dry run validates the package, not account ownership, 2FA or Trusted Publishing permissions. The default tag is deliberately `windows-preview`; stable CI releases explicitly select `latest`.
+
+For the initial bootstrap, a maintainer can publish the already-checked CI archive with `npm publish ./<archive>.tgz --access public --tag windows-preview`, completing npm's authentication/2FA if requested. Then configure the exact trusted publisher with npm 11.15 or newer:
+
+```bash
+npm trust github @jellyfish-p/codex-computer-use-mcp --repo jellyfish-p/codex-computer-use-mcp --file package.yml --allow-publish
+npm trust list @jellyfish-p/codex-computer-use-mcp
+```
+
+Account-level 2FA is required to configure trust. Linking a GitHub account to npm is not the same as configuring this OIDC publisher. Do not replace an existing publisher without reviewing it first.
 
 ## License
 

@@ -7,11 +7,17 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { z } from "zod";
 import { DefaultPackageManager, loadSkills, SettingsManager } from "@earendil-works/pi-coding-agent";
+import packageMetadata from "../package.json" with { type: "json" };
 
 const execFileAsync = promisify(execFile);
 // npm is a .cmd shim on Windows, which Node only runs through a shell.
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const npmOptions = (cwd: string) => ({ cwd, shell: process.platform === "win32" });
+// Reproduce config inherited by prepublishOnly during npm publish --dry-run.
+const npmOptions = (cwd: string) => ({
+	cwd,
+	shell: process.platform === "win32",
+	env: { ...process.env, npm_config_dry_run: "true" },
+});
 const packReportSchema = z.object({
 	filename: z.string(),
 	files: z.array(z.object({ path: z.string() })),
@@ -21,7 +27,25 @@ const packOutputSchema = z.union([
 	z.record(z.string(), packReportSchema),
 ]);
 
-test("packed package installs and starts from a plain npm consumer", async () => {
+test("npm metadata targets the fork's public preview without renaming its CLI", async () => {
+	assert.equal(packageMetadata.name, "@jellyfish-p/codex-computer-use-mcp");
+	assert.deepEqual(packageMetadata.publishConfig, {
+		access: "public",
+		tag: "windows-preview",
+		registry: "https://registry.npmjs.org/",
+	});
+	assert.equal(packageMetadata.repository.url, "git+https://github.com/jellyfish-p/codex-computer-use-mcp.git");
+	assert.equal(packageMetadata.bugs.url, "https://github.com/jellyfish-p/codex-computer-use-mcp/issues");
+	assert.equal(packageMetadata.homepage, "https://github.com/jellyfish-p/codex-computer-use-mcp#readme");
+	assert.deepEqual(packageMetadata.bin, { "codex-computer-use-mcp": "dist/mcp-server.js" });
+	const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
+	assert.equal(lock.name, packageMetadata.name);
+	assert.equal(lock.version, packageMetadata.version);
+	assert.equal(lock.packages[""].name, packageMetadata.name);
+	assert.equal(lock.packages[""].version, packageMetadata.version);
+});
+
+test("scoped package installs and discovers its Pi skill even during a publish dry-run", async () => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "computer-use-package-test."));
 	try {
 		const projectRoot = process.cwd();
@@ -32,7 +56,8 @@ test("packed package installs and starts from a plain npm consumer", async () =>
 		});
 		// A junction needs no symlink privilege on Windows.
 		await symlink(path.join(projectRoot, "node_modules"), path.join(sourceRoot, "node_modules"), process.platform === "win32" ? "junction" : "dir");
-		const { stdout } = await execFileAsync(npm, ["pack", "--json", "--pack-destination", root], npmOptions(sourceRoot));
+		// Only the temporary test pack/install must write files; the outer publish stays a dry run.
+		const { stdout } = await execFileAsync(npm, ["pack", "--dry-run=false", "--json", "--pack-destination", root], npmOptions(sourceRoot));
 		const parsedReport = packOutputSchema.parse(JSON.parse(stdout));
 		const report = Array.isArray(parsedReport) ? parsedReport[0] : Object.values(parsedReport)[0];
 		assert.ok(report);
@@ -56,10 +81,13 @@ test("packed package installs and starts from a plain npm consumer", async () =>
 		const consumer = path.join(root, "consumer");
 		await mkdir(consumer);
 		await writeFile(path.join(consumer, "package.json"), '{"private":true}\n');
-		await execFileAsync(npm, ["install", "--no-audit", "--no-fund", path.join(root, report.filename)], npmOptions(consumer));
+		await execFileAsync(npm, ["install", "--dry-run=false", "--no-audit", "--no-fund", path.join(root, report.filename)], npmOptions(consumer));
 
-		const installedRoot = path.join(consumer, "node_modules", "codex-computer-use-mcp");
+		const installedRoot = path.join(consumer, "node_modules", packageMetadata.name);
 		const installedPackage = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
+		assert.equal(installedPackage.name, packageMetadata.name);
+		assert.equal(installedPackage.version, packageMetadata.version);
+		await access(path.join(consumer, "node_modules", ".bin", process.platform === "win32" ? "codex-computer-use-mcp.cmd" : "codex-computer-use-mcp"));
 		// Registry installs never run prepare; it only builds git and source checkouts.
 		assert.equal(installedPackage.scripts.prepare, "npm run build");
 		assert.deepEqual(Object.keys(installedPackage.dependencies).sort(), ["@modelcontextprotocol/sdk", "zod"]);

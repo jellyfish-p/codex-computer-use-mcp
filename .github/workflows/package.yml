@@ -1,24 +1,40 @@
-name: Package Windows preview
+name: CI and release
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
+    branches:
+      - main
     tags:
-      - 'v*-windows.*'
+      - 'v*'
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   package:
     runs-on: windows-latest
     timeout-minutes: 20
+    outputs:
+      npm_tag: ${{ steps.release.outputs['npm-tag'] }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      release_title: ${{ steps.release.outputs['release-title'] }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: npm
+      - name: Determine release channel and validate tag
+        id: release
+        run: node tools/release.ts metadata
       - name: Install dependencies
         run: npm ci
       - name: Check source and Pi integration
@@ -32,12 +48,10 @@ jobs:
         shell: pwsh
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$($package.version)") {
-            throw "Tag must match package.json version"
-          }
-          npm pack
+          $packJson = npm pack --json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $filename = "$($package.name)-$($package.version).tgz"
+          $pack = @($packJson | ConvertFrom-Json)[0]
+          $filename = $pack.filename
           $hash = (Get-FileHash $filename -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $filename" | Set-Content "$filename.sha256" -Encoding utf8
           @{
@@ -46,10 +60,11 @@ jobs:
             commit = $env:GITHUB_SHA
             filename = $filename
             sha256 = $hash
+            integrity = $pack.integrity
           } | ConvertTo-Json | Set-Content build-manifest.json -Encoding utf8
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: windows-preview-package
+          name: npm-package
           path: |
             *.tgz
             *.tgz.sha256
@@ -57,41 +72,69 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  prerelease:
+  npm-publish:
     needs: package
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-package
+          path: release
+      - name: Publish verified archive with npm OIDC
+        run: node tools/release.ts publish release
+
+  github-release:
+    needs: [package, npm-publish]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: windows-preview-package
+          name: npm-package
           path: release
-      - name: Publish GitHub prerelease
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TITLE: ${{ needs.package.outputs.release_title }}
+          PRERELEASE: ${{ needs.package.outputs.prerelease }}
+          NPM_TAG: ${{ needs.package.outputs.npm_tag }}
         run: |
           cat > release-notes.md <<'EOF'
-          Windows preview of codex-computer-use-mcp, based on upstream PR #39.
+          This fork is published as `@jellyfish-p/codex-computer-use-mcp`; the CLI command and Computer Use tools retain their original names.
 
-          - Pi now owns the Windows helper turn lifecycle: pauses between tool calls no longer end the turn after 15 seconds. Task completion, cancellation, shutdown and request failures still clean up the session; MCP retains its idle fallback.
-          - Bundled an original computer-use skill with Windows and macOS guidance for window selection, input focus, observe-act-verify and recovery.
-          - Direct Pi tools now expose short workflow guidelines without requiring codemode. Use /skill:computer-use to load the full skill.
-          - Added official Windows mouse button aliases (l/r/m) and regression coverage for all thirteen Windows methods, lifecycle handling, skill discovery and packaging.
-          - Preserved official app approvals, Authenticode verification, verified Codex discovery and zero nested model turns.
-          - Built and tested on a GitHub Windows runner with Node.js 24. Live desktop acceptance tests are excluded from CI; install the official ChatGPT/Codex Windows components locally.
+          - Pi-managed Windows helper turns remain open across pauses, with task-end, cancellation and failure cleanup. MCP retains its idle fallback.
+          - Includes the original Pi Computer Use skill, platform references, direct-tool guidance and official Windows mouse-button aliases.
+          - CI checks, tests and packages on Windows with Node.js 24. Native desktop acceptance tests are excluded from CI.
+          - npm and GitHub use the same checked archive. SHA-256 and SHA-512 integrity are recorded in build-manifest.json.
+          - Preview tags publish to windows-preview; stable tags publish to latest. New automated npm publications use OIDC and provenance.
 
-          The .tgz contains compiled dist files, the Pi extension and the original skill with its references. Local research notes and captured Codex source documents are excluded. The .sha256 and build-manifest.json identify the exact build. This is a GitHub prerelease only, not an npm publication.
+          The official ChatGPT/Codex desktop components must be installed locally. Local research notes and captured Codex documents are not distributed. The project retains the upstream MIT license and attribution.
           EOF
+          printf '\nInstall in Pi: `pi install npm:@jellyfish-p/codex-computer-use-mcp@%s`\n' "$NPM_TAG" >> release-notes.md
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release/* --clobber
+          elif [ "$PRERELEASE" = 'true' ]; then
+            gh release create "$RELEASE_TAG" release/* --verify-tag --prerelease \
+              --title "$RELEASE_TITLE" --notes-file release-notes.md
           else
-            gh release create "$RELEASE_TAG" release/* \
-              --verify-tag --prerelease \
-              --title "Windows preview $RELEASE_TAG" \
-              --notes-file release-notes.md
+            gh release create "$RELEASE_TAG" release/* --verify-tag --latest \
+              --title "$RELEASE_TITLE" --notes-file release-notes.md
           fi
