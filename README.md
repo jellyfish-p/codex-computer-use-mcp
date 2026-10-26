@@ -28,13 +28,13 @@ Windows Computer Use asks for approval the first time an app is used. The adapte
 
 ## Pi
 
-For an npm-published preview, install the scoped package:
+Install the stable release of the scoped package:
 
 ```bash
-pi install npm:@jellyfish-p/codex-computer-use-mcp@windows-preview
+pi install npm:@jellyfish-p/codex-computer-use-mcp@latest
 ```
 
-For a published stable release, use `pi install npm:@jellyfish-p/codex-computer-use-mcp@latest`. Source checkouts and downloaded archives also work without an npm publication. When switching from the old unscoped or local package, remove that old Pi package registration first to avoid registering the same tools twice.
+To opt into Windows previews instead, use `pi install npm:@jellyfish-p/codex-computer-use-mcp@windows-preview`. Source checkouts and downloaded archives also work without an npm publication. When switching from the old unscoped or local package, remove that old Pi package registration first to avoid registering the same tools twice.
 
 The extension registers the official Computer Use methods of the host platform as Pi tools named `computer_use_<method>`. **Codemode is optional:** Pi can declare these tools directly to the model when you activate them. The extension preserves Pi's `codemode` exposure for optional composition, but does not require a script executor or change the active tool set itself.
 
@@ -116,7 +116,7 @@ Loading the package directory includes its skill. Loading only `integrations/pi/
 Running the package binary starts a stdio MCP server with the same platform methods and `computer_use_status`:
 
 ```bash
-npx @jellyfish-p/codex-computer-use-mcp@windows-preview
+npx @jellyfish-p/codex-computer-use-mcp@latest
 ```
 
 Example Pi MCP configuration:
@@ -126,7 +126,7 @@ Example Pi MCP configuration:
   "mcpServers": {
     "computer-use": {
       "command": "npx",
-      "args": ["@jellyfish-p/codex-computer-use-mcp@windows-preview"],
+      "args": ["@jellyfish-p/codex-computer-use-mcp@latest"],
       "lifecycle": "lazy",
       "requestTimeoutMs": 180000,
       "directTools": false
@@ -212,11 +212,13 @@ Keep that directory: Pi loads local packages in place. Enable direct calls with 
 
 ### npm publication preflight
 
-The package targets the public npm registry under `@jellyfish-p`, with the `windows-preview` dist-tag rather than `latest`. Check the publish payload without uploading:
+The package targets the public npm registry under `@jellyfish-p`. Stable releases use `latest`; Windows previews use `windows-preview`. Check a stable release's publish payload without uploading:
 
 ```bash
-npm publish --dry-run --access public --tag windows-preview
+npm publish --dry-run --access public --tag latest
 ```
+
+For a preview version, use `--tag windows-preview` instead.
 
 This runs `prepublishOnly`, including the full local test suite and its read-only official helper check. A successful dry run validates the package, not account ownership, 2FA or Trusted Publishing permissions. The default tag is deliberately `windows-preview`; stable CI releases explicitly select `latest`.
 
